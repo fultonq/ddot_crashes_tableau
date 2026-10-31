@@ -72,7 +72,7 @@ python download_ddot_data.py --start 2026-01-01 --end 2026-10-09 --output ddot_c
 
 The script queries layer 24 using the source-reported count, paginates 1,000 rows at a time (ArcGIS `maxRecordCount = 1000`), orders by `OBJECTID`, retries transient failures, normalizes ward/date fields, computes injury counts and flags, and writes UTF-8 CSV. If internet access or the public API is blocked, use the official raw CSV link above and adapt its native field names in Tableau (Section 6).
 
-**For the browser demonstration:** use `ddot_crash_dashboard.html`. Served from this folder (`python3 -m http.server 8000`, then http://localhost:8000/ddot_crash_dashboard.html) it loads the local `data/phase2` CSV; opened directly as a file it downloads the live period set in its header from the same official endpoint. If firewalls or internet access block that, click **Open files…** and select the CSV produced by the Python scripts. The map uses Leaflet with CARTO/OpenStreetMap tiles; without the map library the charts still show all loaded records.
+**For the browser demonstration:** use `ddot_crash_dashboard.html`. Served from this folder (`python3 -m http.server 8000`, then http://localhost:8000/ddot_crash_dashboard.html) it loads the local `data/phase2` CSV; opened directly as a file it downloads the live period set in its header from the same official endpoint. If firewalls or internet access block that, click **Open files…** and select the CSV produced by the Python scripts. The map uses Leaflet with OpenStreetMap tiles; without the map library the charts still show all loaded records.
 
 ## 5. Data preparation and QA before Tableau
 

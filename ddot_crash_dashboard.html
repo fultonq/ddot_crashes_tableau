@@ -690,9 +690,13 @@ function ensureMap(){
   return true;
 }
 function setTiles(){
-  if(tiles)map.removeLayer(tiles);
-  tiles=L.tileLayer(`https://{s}.basemaps.cartocdn.com/${isDark()?'dark_all':'light_all'}/{z}/{x}/{y}{r}.png`,
-    {attribution:'&copy; OpenStreetMap contributors &copy; CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
+  // OSM standard tiles (CARTO basemaps now require an API key); muted to sit behind the data,
+  // and inverted for dark mode
+  if(!tiles)tiles=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',maxZoom:19}).addTo(map);
+  map.getPane('tilePane').style.filter=isDark()
+    ?'invert(1) hue-rotate(180deg) brightness(.9) saturate(.3)'
+    :'saturate(.25) brightness(1.04)';
 }
 const ll=path=>path.map(p=>[p[1],p[0]]);
 function drawHinLines(){
