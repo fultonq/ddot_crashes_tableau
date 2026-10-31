@@ -4,6 +4,8 @@ This package contains a **browser-based proof-of-concept visualization** and the
 
 **Live dashboard:** https://fultonq.github.io/ddot_crashes_tableau/ — served by GitHub Pages from `main`; shows the committed `data/phase2` CSV, and **↻ Load live** pulls current records from DCGIS.
 
+**Tableau workbook:** [download DDOT_Crash_Safety_Dashboard.twbx](https://github.com/fultonq/ddot_crashes_tableau/raw/main/DDOT_Crash_Safety_Dashboard.twbx) (1.9 MB, data packaged inside) and open it in Tableau Desktop 2026.2 or later.
+
 ## Package files
 
 - `ddot_crash_dashboard.html` — browser version of the Tableau dashboard. Loads `data/phase2/ddot_crashes_enriched.csv` + `ddot_hin_geometry.geojson` when served locally, otherwise falls back to live DCGIS crash + HIN data (matched to the HIN in the browser); **Open files…** accepts pipeline CSV/GeoJSON output.
