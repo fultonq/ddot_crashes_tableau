@@ -1,6 +1,8 @@
 # DDOT Road Safety POC — Quick Start
 
-This package contains a **browser-based proof-of-concept visualization** and the assets to **recreate the same dashboards in Tableau Desktop** using real District of Columbia crash open data. It is not a DDOT-issued product and does not include an author-tested native Tableau `.twb` / `.twbx`.
+This package contains a **browser-based proof-of-concept visualization** and the assets to **recreate the same dashboards in Tableau Desktop** using real District of Columbia crash open data. It is not a DDOT-issued product.
+
+**Live dashboard:** https://fultonq.github.io/ddot_crashes_tableau/ — served by GitHub Pages from `main`; shows the committed `data/phase2` CSV, and **↻ Load live** pulls current records from DCGIS.
 
 ## Package files
 
