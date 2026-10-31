@@ -1,0 +1,87 @@
+name: Refresh crash data
+
+# Weekly re-download of DCGIS crashes + HIN enrichment, rebuild of the Tableau
+# workbook, and redeploy of the GitHub Pages dashboard.
+on:
+  schedule:
+    - cron: "0 10 * * 1" # Mondays 10:00 UTC (5–6 AM in DC)
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First report date (YYYY-MM-DD)"
+        default: "2023-01-01"
+        required: true
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      START: ${{ inputs.start || '2023-01-01' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set end date (yesterday, America/New_York)
+        run: echo "END=$(TZ=America/New_York date -d yesterday +%F)" >> "$GITHUB_ENV"
+
+      - name: Download crashes from DCGIS
+        run: |
+          python download_ddot_data.py --start "$START" --end "$END" --output data/ddot_crashes_new.csv
+
+      - name: Sanity-check row count
+        run: |
+          old=$(($(wc -l < data/ddot_crashes_real.csv) - 1))
+          new=$(($(wc -l < data/ddot_crashes_new.csv) - 1))
+          echo "Previous extract: $old rows; new extract: $new rows"
+          # A shrinking extract usually means a partial API response, not real deletions.
+          if [ "$new" -lt $((old * 95 / 100)) ]; then
+            echo "::error::New extract has $new rows, more than 5% below the previous $old. Not committing."
+            exit 1
+          fi
+          mv data/ddot_crashes_new.csv data/ddot_crashes_real.csv
+
+      - name: Enrich with HIN corridors, AADT and work orders
+        run: python enrich_ddot_safety.py --crashes data/ddot_crashes_real.csv --outdir data/phase2
+
+      - name: Check for data changes
+        id: diff
+        run: |
+          # ddot_data_quality.json carries a run timestamp, so it alone doesn't count as a change.
+          if git diff --quiet -- data/ ':!data/phase2/ddot_data_quality.json'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No data changes; nothing to commit."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- data/
+          fi
+
+      - name: Rebuild Tableau workbook
+        if: steps.diff.outputs.changed == 'true'
+        run: python build_tableau_workbook.py --phase2 data/phase2 --output DDOT_Crash_Safety_Dashboard.twbx
+
+      - name: Commit and push
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/ DDOT_Crash_Safety_Dashboard.twbx
+          git commit -m "Refresh crash data: $START to $END"
+          git push
+
+      - name: Rebuild GitHub Pages
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" --silent

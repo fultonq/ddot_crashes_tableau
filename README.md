@@ -4,7 +4,7 @@ This package contains a **browser-based proof-of-concept visualization** and the
 
 [![DC Traffic Crash Safety dashboard: KPI tiles, KSI crash map with HIN corridors, monthly trends, and KSI crashes by ward and road user](docs/dashboard.jpg)](https://fultonq.github.io/ddot_crashes_tableau/)
 
-**Live dashboard:** https://fultonq.github.io/ddot_crashes_tableau/ — served by GitHub Pages from `main`; shows the committed `data/phase2` CSV, and **↻ Load live** pulls current records from DCGIS.
+**Live dashboard:** https://fultonq.github.io/ddot_crashes_tableau/ — served by GitHub Pages from `main`; shows the committed `data/phase2` CSV, and **↻ Load live** pulls current records from DCGIS. The data, the `.twbx` and the Pages site are refreshed every Monday by the [Refresh crash data](.github/workflows/refresh-data.yml) GitHub Action (also runnable on demand from the Actions tab).
 
 **Tableau workbook:** [download DDOT_Crash_Safety_Dashboard.twbx](https://github.com/fultonq/ddot_crashes_tableau/raw/main/DDOT_Crash_Safety_Dashboard.twbx) (1.9 MB, data packaged inside) and open it in Tableau Desktop 2026.2 or later.
 
