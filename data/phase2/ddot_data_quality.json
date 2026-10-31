@@ -1,18 +1,18 @@
 {
-  "created_utc": "2026-10-31T02:07:32.290986+00:00",
+  "created_utc": "2026-10-31T02:53:06.543702+00:00",
   "sources": {
     "hin": "https://rh.dcgis.dc.gov/dcgis/rest/services/DDOT/DDOTLRS/FeatureServer/142",
     "aadt": "https://rh.dcgis.dc.gov/dcgis/rest/services/DDOT/DDOTLRS/FeatureServer/24",
     "workorders": "https://maps2.dcgis.dc.gov/dcgis/rest/services/DDOT/Cityworks/FeatureServer/3",
     "crashes": "https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Public_Safety_WebMercator/FeatureServer/24"
   },
-  "crash_rows": 72420,
+  "crash_rows": 73844,
   "hin_segments": 74,
   "hin_corridors": 58,
   "aadt_segments": 106907,
   "traffic_safety_workorder_points": 12,
   "verified_project_rows": 0,
-  "crashes_near_hin": 20577,
+  "crashes_near_hin": 20987,
   "crashes_no_valid_coordinates": 0,
   "hin_segment_miles": 81.6,
   "aadt_matched_hin_miles": 81.6,
