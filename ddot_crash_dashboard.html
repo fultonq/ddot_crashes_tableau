@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DC Crash Safety</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!--
+  HTML companion to DDOT_Crash_Safety_Dashboard.twbx.
+
+  Data sources, tried in this order:
+    1. Local files written by the Python pipeline (needs a local web server):
+         data/phase2/ddot_crashes_enriched.csv   (enrich_ddot_safety.py)
+         data/phase2/ddot_hin_geometry.geojson   (enrich_ddot_safety.py)
+       Serve from the project folder:  python3 -m http.server 8000
+       then open http://localhost:8000/ddot_crash_dashboard.html
+    2. Live DCGIS ArcGIS services (automatic fallback, or ?source=live):
+         Crashes  Public_Safety_WebMercator/FeatureServer/24
+         HIN      DDOT/DDOTLRS/FeatureServer/142  (35 m proximity match done in the browser)
+    3. "Open files…": any crash CSV from download_ddot_data.py / enrich_ddot_safety.py,
+       optionally with ddot_hin_geometry.geojson and ddot_hin_corridors.csv.
+-->
+<style>
+:root{
+  color-scheme:light;
+  --surface-0:#f3f4f2; --surface-1:#fcfcfb; --surface-2:#f0efec;
+  --border:#e2e1dc; --grid:#ebeae6;
+  --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#76756f;
+  --header:#16253c; --header-ink:#ffffff; --header-sub:#c9d6e3;
+  --fatal:#e34948; --major:#2a78d6; --series-1:#2a78d6;
+  --tier-1:#184f95; --tier-2:#2a78d6; --tier-3:#86b6ef;
+  --hin-line:#52514e;
+  --warn-bg:#fff4dc; --warn-ink:#6b4a00;
+  --focus:#2a78d6;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --surface-0:#121211; --surface-1:#1a1a19; --surface-2:#242422;
+    --border:#33332f; --grid:#2a2a27;
+    --text-primary:#f0efec; --text-secondary:#c3c2b7; --text-muted:#9a998f;
+    --header:#0e1a2b; --header-ink:#f0efec; --header-sub:#9fb3c8;
+    --fatal:#e66767; --major:#3987e5; --series-1:#3987e5;
+    --tier-1:#9ec5f4; --tier-2:#3987e5; --tier-3:#1c5cab;
+    --hin-line:#c3c2b7;
+    --warn-bg:#3a2e10; --warn-ink:#f5d78a;
+    --focus:#6da7ec;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --surface-0:#121211; --surface-1:#1a1a19; --surface-2:#242422;
+  --border:#33332f; --grid:#2a2a27;
+  --text-primary:#f0efec; --text-secondary:#c3c2b7; --text-muted:#9a998f;
+  --header:#0e1a2b; --header-ink:#f0efec; --header-sub:#9fb3c8;
+  --fatal:#e66767; --major:#3987e5; --series-1:#3987e5;
+  --tier-1:#9ec5f4; --tier-2:#3987e5; --tier-3:#1c5cab;
+  --hin-line:#c3c2b7;
+  --warn-bg:#3a2e10; --warn-ink:#f5d78a;
+  --focus:#6da7ec;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-0);color:var(--text-primary);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,select,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+header.top{background:var(--header);color:var(--header-ink);padding:16px 24px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between}
+header.top h1{margin:0;font-size:20px;letter-spacing:.02em;font-weight:650}
+header.top .sub{color:var(--header-sub);font-size:12.5px;margin-top:2px}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{border:1px solid rgba(255,255,255,.28);background:transparent;color:var(--header-ink);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px}
+.btn:hover{background:rgba(255,255,255,.1)}
+.btn:disabled{opacity:.5;cursor:default}
+.range{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--header-sub)}
+.range input{background:transparent;border:1px solid rgba(255,255,255,.28);border-radius:6px;padding:4px 6px;color:var(--header-ink);color-scheme:dark}
+
+.wrap{max-width:1500px;margin:0 auto;padding:16px 24px 32px}
+.status{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--text-secondary);min-height:22px;margin-bottom:10px;flex-wrap:wrap}
+.chip{display:inline-block;border:1px solid var(--border);background:var(--surface-1);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--text-secondary)}
+.status.error{color:var(--fatal)}
+.spinner{width:12px;height:12px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--series-1);animation:spin .8s linear infinite;display:none}
+.spinner.on{display:inline-block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.banner{background:var(--warn-bg);color:var(--warn-ink);border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;display:none}
+.banner.on{display:block}
+
+.filters{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:end;margin-bottom:14px}
+.filters label{display:block;font-size:11.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px}
+.filters select{background:var(--surface-1);border:1px solid var(--border);border-radius:6px;padding:6px 8px;min-width:150px}
+.clear{background:none;border:none;color:var(--series-1);cursor:pointer;padding:6px 0;font-size:13px}
+
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:12px 16px}
+.kpi .label{font-size:12.5px;color:var(--text-secondary);font-weight:600}
+.kpi .value{font-size:30px;font-weight:650;margin:2px 0;font-variant-numeric:tabular-nums}
+.kpi .desc{font-size:12px;color:var(--text-muted)}
+
+.grid{display:grid;grid-template-columns:minmax(0,45fr) minmax(0,55fr);gap:12px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.panel{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;padding:14px 16px;min-width:0;position:relative}
+.panel h2{margin:0;font-size:14.5px;font-weight:650}
+.panel .note{margin:2px 0 10px;font-size:12px;color:var(--text-muted)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-secondary);margin:-4px 0 8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.legend i.line{border-radius:0;height:2px;width:14px;vertical-align:3px}
+.legend i.sq{border-radius:2px}
+#map{height:640px;border-radius:8px;background:var(--surface-2)}
+.leaflet-container{font:inherit}
+.empty{color:var(--text-muted);font-size:13px;padding:24px 0;text-align:center}
+
+/* bar lists */
+.bars{display:flex;flex-direction:column;gap:2px}
+.bar{display:grid;grid-template-columns:minmax(80px,38%) 1fr auto;align-items:center;gap:8px;background:none;border:none;padding:3px 4px;border-radius:6px;cursor:pointer;text-align:left;width:100%}
+.bar:hover,.bar.sel{background:var(--surface-2)}
+.bar .name{font-size:12.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .track{height:12px;position:relative}
+.bar .fill{position:absolute;left:0;top:0;bottom:0;border-radius:0 4px 4px 0;background:var(--series-1);min-width:1px}
+.bar .val{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--text-primary);min-width:36px;text-align:right}
+.bar.static{cursor:default}
+.bar.static:hover{background:none}
+.bar.dim{opacity:.45}
+
+/* line charts */
+svg text{fill:var(--text-muted);font-size:10.5px}
+.chart{position:relative}
+.tip{position:fixed;pointer-events:none;z-index:1000;background:var(--surface-1);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12.5px;box-shadow:0 4px 16px rgba(0,0,0,.14);display:none;max-width:280px}
+.tip b{font-weight:650}
+.tip .k{color:var(--text-secondary)}
+
+details.tbl{margin-top:10px}
+details.tbl summary{cursor:pointer;font-size:12.5px;color:var(--series-1)}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+th,td{padding:5px 6px;border-bottom:1px solid var(--grid);text-align:right;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--text-secondary);font-weight:600}
+
+footer{margin-top:16px;font-size:12px;color:var(--text-muted);line-height:1.6}
+
+@media (max-width:1100px){
+  .grid{grid-template-columns:1fr}
+  .kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+  #map{height:460px}
+}
+@media (max-width:640px){
+  header.top,.wrap{padding-left:16px;padding-right:16px}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .row2{grid-template-columns:1fr}
+  .kpi .value{font-size:24px}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>DC Traffic Crash Safety</h1>
+    <div class="sub" id="subtitle">DCGIS / MPD Crashes in DC · HIN corridors (DDOT)</div>
+  </div>
+  <div class="actions">
+    <div class="range">
+      <label for="start">Live</label>
+      <input type="date" id="start" value="2023-01-01" aria-label="Live start date">
+      <span>to</span>
+      <input type="date" id="end" aria-label="Live end date">
+    </div>
+    <button class="btn" id="live" title="Download the selected report-date range from DCGIS and match it to the HIN">↻ Load live</button>
+    <button class="btn" id="local" title="Load data/phase2 output from the Python pipeline">Local CSV</button>
+    <button class="btn" id="open" title="Choose CSV / GeoJSON files">Open files…</button>
+    <button class="btn" id="export" title="Download the filtered crash records">↓ CSV</button>
+    <input type="file" id="file" accept=".csv,.geojson,.json" multiple hidden>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="status" id="statusline"><span class="spinner" id="spin"></span><span id="status">Starting…</span><span class="chip" id="srcchip" hidden></span></div>
+  <div class="banner" id="banner"></div>
+
+  <section class="filters" aria-label="Filters">
+    <div><label for="f-year">Year</label><select id="f-year"><option value="All">All years</option></select></div>
+    <div><label for="f-ward">Ward</label><select id="f-ward"><option value="All">All wards</option></select></div>
+    <div><label for="f-mode">Road user</label><select id="f-mode">
+      <option value="All">All road users</option><option>Pedestrian</option><option>Bicyclist</option><option>Motor vehicle only</option>
+    </select></div>
+    <button class="clear" id="clear">Clear filters</button>
+  </section>
+
+  <section class="kpis" aria-label="Key figures">
+    <div class="kpi"><div class="label">Reported crashes</div><div class="value" id="k-crashes">—</div><div class="desc">one row per crash record</div></div>
+    <div class="kpi"><div class="label">Traffic fatalities</div><div class="value" id="k-fatal">—</div><div class="desc">people killed</div></div>
+    <div class="kpi"><div class="label">Major injuries</div><div class="value" id="k-major">—</div><div class="desc">people seriously injured</div></div>
+    <div class="kpi"><div class="label">KSI crashes</div><div class="value" id="k-ksi">—</div><div class="desc">crashes with ≥1 fatal or major injury</div></div>
+    <div class="kpi"><div class="label">KSI crashes near HIN</div><div class="value" id="k-hin">—</div><div class="desc">share within 35 m of the High-Injury Network</div></div>
+  </section>
+
+  <div class="grid">
+    <div class="col">
+      <section class="panel">
+        <h2>KSI crash locations</h2>
+        <p class="note" id="map-note">Fatal and major-injury crashes by report location; lines are HIN corridors.</p>
+        <div class="legend"><span><i style="background:var(--fatal)"></i>Fatal</span><span><i style="background:var(--major)"></i>Major injury</span><span><i class="line" style="background:var(--hin-line)"></i>HIN corridor</span></div>
+        <div id="map" role="img" aria-label="Map of fatal and major-injury crash locations in Washington DC"></div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="panel">
+        <h2>Monthly crashes and KSI crashes</h2>
+        <p class="note">By report month. Separate scales: KSI crashes are about 2% of all crashes.</p>
+        <div class="chart" id="trend-all"></div>
+        <div class="chart" id="trend-ksi"></div>
+      </section>
+      <div class="row2">
+        <section class="panel">
+          <h2>KSI crashes by ward</h2>
+          <p class="note">Select a ward to filter the dashboard.</p>
+          <div class="bars" id="wards"></div>
+        </section>
+        <section class="panel">
+          <h2>KSI crashes by road user</h2>
+          <p class="note">Pedestrian &gt; bicyclist &gt; motor vehicle only. Select to filter.</p>
+          <div class="bars" id="modes"></div>
+        </section>
+      </div>
+      <div class="row2">
+        <section class="panel">
+          <h2>Top HIN corridors by KSI crashes</h2>
+          <p class="note">Crashes within 35 m (proximity match, not verified attribution). Select to show on the map.</p>
+          <div class="legend" id="tier-legend"></div>
+          <div class="bars" id="corr-ksi"></div>
+        </section>
+        <section class="panel">
+          <h2>KSI crashes per HIN mile</h2>
+          <p class="note">Corridors ≥ 0.5 mi, current filters. Select to show on the map.</p>
+          <div class="legend" id="tier-legend2"></div>
+          <div class="bars" id="corr-rate"></div>
+          <details class="tbl"><summary>All HIN corridors as a table</summary><div id="corr-table"></div></details>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div><b>Sources:</b> DCGIS Public_Safety_WebMercator FeatureServer/24 (MPD-sourced, DDOT-maintained); DDOT HIN DDOTLRS FeatureServer/142; AADT DDOTLRS/24 (local pipeline only).</div>
+    <div>KSI = crash with ≥1 fatality or major injury; fatality and major-injury counts are people, not crashes. Dates are REPORTDATE. HIN matches are 35 m proximity screens, not verified attribution. AADT is context, not an exposure rate. Not an official DDOT publication.</div>
+  </footer>
+</div>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+(() => {
+'use strict';
+const CRASH_URL='https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Public_Safety_WebMercator/FeatureServer/24/query';
+const HIN_URL='https://rh.dcgis.dc.gov/dcgis/rest/services/DDOT/DDOTLRS/FeatureServer/142/query';
+const LOCAL_CRASHES='data/phase2/ddot_crashes_enriched.csv';
+const LOCAL_HIN='data/phase2/ddot_hin_geometry.geojson';
+const FIELDS=['OBJECTID','CRIMEID','REPORTDATE','WARD','LATITUDE','LONGITUDE','NEARESTINTSTREETNAME','TOTAL_VEHICLES','TOTAL_BICYCLES','TOTAL_PEDESTRIANS','SPEEDING_INVOLVED','FATAL_PEDESTRIAN','FATAL_BICYCLIST','FATAL_DRIVER','FATALPASSENGER','FATALOTHER','MAJORINJURIES_PEDESTRIAN','MAJORINJURIES_BICYCLIST','MAJORINJURIES_DRIVER','MAJORINJURIESPASSENGER','MAJORINJURIESOTHER'];
+const EXPORT_FIELDS=['crash_id','object_id','report_date','report_month','ward','latitude','longitude','nearest_street','total_vehicles','total_bicycles','total_pedestrians','speeding_involved','fatalities','major_injuries','ksi_crash','pedestrian_involved','bicyclist_involved','motor_vehicle_involved','road_user','hin_corridor_id','hin_corridor_name','hin_tier','hin_distance_m'];
+const HIN_MATCH_M=35, MIN_RATE_MILES=0.5, R=6371008.8;
+
+const el=id=>document.getElementById(id);
+const fmt=n=>Number(n).toLocaleString('en-US');
+const pct=x=>Number.isFinite(x)?(x*100).toFixed(1)+'%':'—';
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num=v=>{const n=Number(v);return v===''||v==null||!Number.isFinite(n)?0:Math.max(0,n)};
+const css=name=>getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+let crashes=[], corridors=new Map(), filtered=[], source='', loadToken=0, controller=null;
+let selectedCorridor=null;
+
+// ---------------------------------------------------------------- status
+function setStatus(msg,{busy=false,error=false}={}){
+  el('status').textContent=msg; el('spin').classList.toggle('on',busy);
+  el('statusline').classList.toggle('error',error);
+}
+function setSource(label){source=label;const c=el('srcchip');c.hidden=!label;c.textContent=label}
+function banner(msg){const b=el('banner');b.textContent=msg||'';b.classList.toggle('on',!!msg)}
+
+// ---------------------------------------------------------------- normalize
+const dayNY=ms=>{const p=new Intl.DateTimeFormat('en-CA',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(Number(ms)));return p};
+const wardName=v=>{const m=String(v??'').trim().match(/([1-8])$/);return m?'Ward '+m[1]:'Unknown'};
+function normalize(a){
+  const raw=a.OBJECTID!==undefined||a.REPORTDATE!==undefined;
+  const g=(rawKey,key)=>raw?a[rawKey]:a[key];
+  const date=raw?(a.REPORTDATE!=null?dayNY(a.REPORTDATE):''):String(a.report_date||'').slice(0,10);
+  const fatal=raw?['FATAL_PEDESTRIAN','FATAL_BICYCLIST','FATAL_DRIVER','FATALPASSENGER','FATALOTHER'].reduce((t,k)=>t+num(a[k]),0)
+                 :(a.fatalities!==undefined?num(a.fatalities):['fatal_pedestrian','fatal_bicyclist','fatal_driver','fatal_passenger','fatal_other'].reduce((t,k)=>t+num(a[k]),0));
+  const major=raw?['MAJORINJURIES_PEDESTRIAN','MAJORINJURIES_BICYCLIST','MAJORINJURIES_DRIVER','MAJORINJURIESPASSENGER','MAJORINJURIESOTHER'].reduce((t,k)=>t+num(a[k]),0)
+                 :(a.major_injuries!==undefined?num(a.major_injuries):['major_pedestrian','major_bicyclist','major_driver','major_passenger','major_other'].reduce((t,k)=>t+num(a[k]),0));
+  const veh=num(g('TOTAL_VEHICLES',a.total_vehicles!==undefined?'total_vehicles':'vehicles'));
+  const bik=num(g('TOTAL_BICYCLES',a.total_bicycles!==undefined?'total_bicycles':'bicycles'));
+  const ped=num(g('TOTAL_PEDESTRIANS',a.total_pedestrians!==undefined?'total_pedestrians':'pedestrians'));
+  const lat=Number(g('LATITUDE','latitude')), lon=Number(g('LONGITUDE','longitude'));
+  const oid=g('OBJECTID','object_id');
+  const ok=Number.isFinite(lat)&&Number.isFinite(lon)&&lat>38.7&&lat<39.1&&lon>-77.3&&lon<-76.7;
+  const r={
+    crash_id:String(g('CRIMEID','crash_id')||'').trim()||('OID-'+oid), object_id:oid,
+    report_date:date, report_month:date.slice(0,7), year:date.slice(0,4), ward:wardName(g('WARD','ward')),
+    latitude:ok?lat:null, longitude:ok?lon:null,
+    nearest_street:String(g('NEARESTINTSTREETNAME','nearest_street')||'(Not reported)').trim(),
+    total_vehicles:veh,total_bicycles:bik,total_pedestrians:ped,speeding_involved:num(g('SPEEDING_INVOLVED','speeding_involved')),
+    fatalities:fatal, major_injuries:major, ksi_crash:fatal+major>0?1:0,
+    pedestrian_involved:ped>0?1:0, bicyclist_involved:bik>0?1:0, motor_vehicle_involved:veh>0?1:0,
+    hin_corridor_id:'', hin_corridor_name:'', hin_tier:'', hin_distance_m:''
+  };
+  r.road_user=r.pedestrian_involved?'Pedestrian':r.bicyclist_involved?'Bicyclist':'Motor vehicle only';
+  r.severity=fatal>0?'Fatal':major>0?'Major injury':'Minor / no injury';
+  if(!raw&&a.hin_spatial_match!==undefined){
+    r.hin_corridor_id=a.hin_corridor_id||''; r.hin_corridor_name=a.hin_corridor_name||'';
+    r.hin_tier=a.hin_tier||''; r.hin_distance_m=a.hin_distance_m||'';
+    r._hinKnown=true;
+  }
+  return r;
+}
+
+// ---------------------------------------------------------------- CSV
+function parseCSV(text){
+  const rows=[];let row=[],field='',q=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){field+='"';i++} else q=false } else field+=c; }
+    else if(c==='"') q=true;
+    else if(c===','){row.push(field);field=''}
+    else if(c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n')i++; row.push(field);field=''; if(row.length>1||row[0]!=='')rows.push(row); row=[] }
+    else field+=c;
+  }
+  if(field!==''||row.length){row.push(field);rows.push(row)}
+  const head=(rows.shift()||[]).map((s,i)=>i===0?s.replace(/^﻿/,''):s);
+  return {head,rows:rows.map(v=>Object.fromEntries(head.map((k,i)=>[k,v[i]??''])))};
+}
+
+// ---------------------------------------------------------------- HIN geometry
+const paths=g=>!g?[]:g.type==='LineString'?[g.coordinates]:g.type==='MultiLineString'?g.coordinates:[];
+function geodist(p,q){
+  const x1=p[0]*Math.PI/180,y1=p[1]*Math.PI/180,x2=q[0]*Math.PI/180,y2=q[1]*Math.PI/180;
+  const a=Math.sin((y2-y1)/2)**2+Math.cos(y1)*Math.cos(y2)*Math.sin((x2-x1)/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(a)));
+}
+function segDist(lon,lat,p,q){
+  const kx=111320*Math.cos(lat*Math.PI/180),ky=111132;
+  const ax=(p[0]-lon)*kx,ay=(p[1]-lat)*ky,bx=(q[0]-lon)*kx,by=(q[1]-lat)*ky;
+  const dx=bx-ax,dy=by-ay,den=dx*dx+dy*dy;
+  const t=den?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/den)):0;
+  return Math.hypot(ax+t*dx,ay+t*dy);
+}
+// corridors from enrich_ddot_safety.py's ddot_hin_geometry.geojson
+function corridorsFromLocalGeo(fc){
+  const m=new Map();
+  for(const f of fc.features||[]){
+    const p=f.properties||{};
+    m.set(String(p.corridor_id),{id:String(p.corridor_id),name:p.corridor_name||'Unlabeled corridor',tier:Number(p.hin_tier)||null,
+      miles:Number(p.hin_miles)||0,aadt:p.aadt_context??null,lines:paths(f.geometry)});
+  }
+  return m;
+}
+// corridors from the live HIN layer — mirrors make_hin() in enrich_ddot_safety.py
+function corridorsFromLiveHin(fc){
+  const m=new Map();
+  (fc.features||[]).forEach((f,i)=>{
+    const p=f.properties||{}, lines=paths(f.geometry);
+    if(!lines.length)return;
+    const tier=Number(p.TIER_1)===1?1:Number(p.TIER_2)===1?2:Number(p.TIER_3)===1?3:null;
+    if(tier==null)return;
+    const id=String(p.CORRIDORID||'').trim()||('UNKEYED-'+(p.OBJECTID??'f'+i));
+    let len=0;for(const path of lines)for(let j=1;j<path.length;j++)len+=geodist(path[j-1],path[j]);
+    if(len<=0)return;
+    const c=m.get(id)||{id,name:String(p.ROUTENAME||'Unlabeled corridor'),tier,miles:0,aadt:null,lines:[]};
+    c.miles+=len/1609.344; c.tier=Math.min(c.tier,tier); c.lines.push(...lines); m.set(id,c);
+  });
+  for(const c of m.values())c.miles=Math.round(c.miles*1000)/1000;
+  return m;
+}
+function matchToHin(rows,corrs){
+  // segment grid index, 0.004° cells (same as LineLookup in the Python pipeline)
+  const cell=0.004,grid=new Map(),segs=[];
+  for(const c of corrs.values())for(const path of c.lines)for(let j=1;j<path.length;j++){
+    const p=path[j-1],q=path[j],idx=segs.length;segs.push([p,q,c]);
+    const x0=Math.floor(Math.min(p[0],q[0])/cell),x1=Math.floor(Math.max(p[0],q[0])/cell);
+    const y0=Math.floor(Math.min(p[1],q[1])/cell),y1=Math.floor(Math.max(p[1],q[1])/cell);
+    for(let x=x0;x<=x1;x++)for(let y=y0;y<=y1;y++){const k=x+','+y;(grid.get(k)||grid.set(k,[]).get(k)).push(idx)}
+  }
+  const pad=0.0015;
+  for(const r of rows){
+    r.hin_corridor_id='';r.hin_corridor_name='';r.hin_tier='';r.hin_distance_m='';
+    if(r.latitude==null)continue;
+    let best=Infinity,bc=null;const seen=new Set();
+    for(let x=Math.floor((r.longitude-pad)/cell);x<=Math.floor((r.longitude+pad)/cell);x++)
+      for(let y=Math.floor((r.latitude-pad)/cell);y<=Math.floor((r.latitude+pad)/cell);y++)
+        for(const i of grid.get(x+','+y)||[]){
+          if(seen.has(i))continue;seen.add(i);
+          const d=segDist(r.longitude,r.latitude,segs[i][0],segs[i][1]);
+          if(d<best){best=d;bc=segs[i][2]}
+        }
+    if(bc&&best<=HIN_MATCH_M){r.hin_corridor_id=bc.id;r.hin_corridor_name=bc.name;r.hin_tier=String(bc.tier);r.hin_distance_m=Math.round(best*10)/10}
+  }
+}
+
+// ---------------------------------------------------------------- loaders
+async function fetchJSON(url,params,signal,tries=4){
+  let last;
+  for(let i=0;i<tries;i++){
+    try{
+      const res=await fetch(url,{method:'POST',body:new URLSearchParams(params),signal});
+      if(!res.ok)throw Error('HTTP '+res.status);
+      const j=await res.json(); if(j.error)throw Error(j.error.message||JSON.stringify(j.error)); return j;
+    }catch(e){ if(signal&&signal.aborted)throw e; last=e; await new Promise(r=>setTimeout(r,600*(i+1))) }
+  }
+  throw last;
+}
+function begin(){ if(controller)controller.abort(); controller=new AbortController(); return {token:++loadToken,signal:controller.signal} }
+
+async function fetchLiveHin(signal){
+  const fc={type:'FeatureCollection',features:[]};
+  for(let off=0;;off+=1000){
+    const page=await fetchJSON(HIN_URL,{where:'1=1',outFields:'*',returnGeometry:'true',outSR:'4326',f:'geojson',resultOffset:off,resultRecordCount:1000,orderByFields:'OBJECTID'},signal);
+    fc.features.push(...(page.features||[]));
+    if(!(page.features||[]).length||page.features.length<1000)break;
+  }
+  return corridorsFromLiveHin(fc);
+}
+
+async function loadLocal({auto=false}={}){
+  const {token,signal}=begin();
+  setStatus('Loading '+LOCAL_CRASHES+' …',{busy:true});
+  try{
+    const [cr,geo]=await Promise.all([
+      fetch(LOCAL_CRASHES,{signal,cache:'no-cache'}).then(r=>{if(!r.ok)throw Error(LOCAL_CRASHES+': HTTP '+r.status);return r.text()}),
+      fetch(LOCAL_HIN,{signal,cache:'no-cache'}).then(r=>r.ok?r.json():null).catch(()=>null)
+    ]);
+    if(token!==loadToken)return;
+    const {head,rows}=parseCSV(cr);
+    if(!head.includes('report_date'))throw Error('unexpected CSV header in '+LOCAL_CRASHES);
+    const recs=rows.map(normalize);
+    const corrs=geo?corridorsFromLocalGeo(geo):new Map();
+    if(!geo)banner('HIN geometry ('+LOCAL_HIN+') was not found; corridor lines are hidden but HIN match columns from the CSV are used.');
+    setData(recs,corrs,'Local CSV · data/phase2');
+    setStatus(fmt(recs.length)+' crash records from '+LOCAL_CRASHES+' · '+dateSpan(recs));
+  }catch(e){
+    if(signal.aborted||token!==loadToken)return;
+    const fileProto=location.protocol==='file:';
+    if(auto){
+      banner(fileProto
+        ?'Local CSV can’t be read when this page is opened as a file. Run “python3 -m http.server 8000” in the project folder and open http://localhost:8000/ddot_crash_dashboard.html — loading live DCGIS data instead.'
+        :'Local CSV not available ('+e.message+') — loading live DCGIS data instead. Run the Python pipeline to create data/phase2.');
+      return loadLive();
+    }
+    setStatus('Local CSV failed: '+(fileProto?'browsers block file:// reads; serve the folder with python3 -m http.server 8000':e.message),{error:true});
+  }
+}
+
+async function loadLive(){
+  const {token,signal}=begin();
+  const start=el('start').value, end=el('end').value;
+  if(!start||!end||end<start){setStatus('Choose a valid live date range.',{error:true});return}
+  const stop=new Date(end+'T00:00:00Z');stop.setUTCDate(stop.getUTCDate()+1);
+  const where=`REPORTDATE >= timestamp '${start} 00:00:00' AND REPORTDATE < timestamp '${stop.toISOString().slice(0,10)} 00:00:00'`;
+  setStatus('Contacting DCGIS…',{busy:true});
+  try{
+    const hinP=fetchLiveHin(signal).catch(e=>{if(signal.aborted)throw e;return e});
+    const total=Number((await fetchJSON(CRASH_URL,{where,returnCountOnly:'true',f:'json'},signal)).count);
+    if(!Number.isFinite(total))throw Error('invalid record count');
+    const offsets=[];for(let o=0;o<total;o+=1000)offsets.push(o);
+    const byId=new Map();let done=0;
+    async function worker(){
+      while(offsets.length){
+        const off=offsets.shift();
+        const page=await fetchJSON(CRASH_URL,{where,outFields:FIELDS.join(','),returnGeometry:'false',orderByFields:'OBJECTID ASC',resultOffset:off,resultRecordCount:1000,f:'json'},signal);
+        if(!(page.features||[]).length&&off<total)throw Error('empty page at offset '+off);
+        for(const f of page.features)byId.set(f.attributes.OBJECTID,normalize(f.attributes));
+        done+=page.features.length;
+        if(token===loadToken)setStatus(`Downloading crash records from DCGIS · ${fmt(Math.min(done,total))} / ${fmt(total)}`,{busy:true});
+      }
+    }
+    await Promise.all(Array.from({length:Math.min(6,offsets.length||1)},worker));
+    const recs=[...byId.values()].sort((a,b)=>a.object_id-b.object_id);
+    setStatus('Matching crashes to HIN corridors…',{busy:true});
+    let corrs=await hinP;
+    if(token!==loadToken)return;
+    if(corrs instanceof Error){banner('HIN layer unavailable ('+corrs.message+'); corridor panels are empty.');corrs=new Map()}
+    else matchToHin(recs,corrs);
+    setData(recs,corrs,'Live DCGIS · '+new Date().toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'}));
+    setStatus(`${fmt(recs.length)} crash records from DCGIS · ${dateSpan(recs)}`+(recs.length!==total?` · source reported ${fmt(total)} (changed during download)`:''));
+  }catch(e){
+    if(signal.aborted||token!==loadToken)return;
+    setStatus('Live DCGIS request failed: '+e.message+'. Try “Local CSV” or “Open files…”.',{error:true});
+  }
+}
+
+async function loadFiles(files){
+  const {token,signal}=begin();
+  setStatus('Reading '+files.length+' file(s)…',{busy:true});
+  try{
+    let recs=null,corrs=null,attrs=null,names=[];
+    for(const f of files){
+      const text=await f.text();
+      if(/\.(geo)?json$/i.test(f.name)){
+        const j=JSON.parse(text);
+        if(j.type!=='FeatureCollection')continue;
+        const p=(j.features[0]||{}).properties||{};
+        corrs=p.corridor_id!==undefined?corridorsFromLocalGeo(j):corridorsFromLiveHin(j);names.push(f.name);
+      }else{
+        const {head,rows}=parseCSV(text);
+        if(head.includes('report_date')||head.includes('REPORTDATE')){recs=rows.map(normalize);names.push(f.name)}
+        else if(head.includes('corridor_id')&&head.includes('hin_miles')){attrs=rows;names.push(f.name)}
+      }
+    }
+    if(!recs)throw Error('no crash CSV among the selected files (needs a report_date column)');
+    if(attrs){
+      corrs=corrs||new Map();
+      for(const a of attrs){
+        const c=corrs.get(a.corridor_id)||{id:a.corridor_id,lines:[]};
+        Object.assign(c,{name:a.corridor_name,tier:Number(a.hin_tier)||null,miles:Number(a.hin_miles)||0,aadt:a.aadt_context||null});
+        corrs.set(a.corridor_id,c);
+      }
+    }
+    const known=recs.length&&recs[0]._hinKnown;
+    if(!known){
+      if(!corrs||![...corrs.values()].some(c=>c.lines.length)){
+        setStatus('Fetching HIN corridors from DCGIS to match the uploaded crashes…',{busy:true});
+        try{corrs=await fetchLiveHin(signal)}catch(e){if(signal.aborted)return;banner('No HIN data for these crashes; corridor panels are empty.');corrs=new Map()}
+      }
+      matchToHin(recs,corrs);
+    }
+    if(token!==loadToken)return;
+    setData(recs,corrs||new Map(),'Files · '+names.join(', '));
+    setStatus(fmt(recs.length)+' crash records from '+names.join(', ')+' · '+dateSpan(recs));
+  }catch(e){
+    if(signal.aborted||token!==loadToken)return;
+    setStatus('File import failed: '+e.message,{error:true});
+  }
+}
+
+function dateSpan(recs){
+  const d=recs.map(r=>r.report_date).filter(Boolean).sort();
+  return d.length?'report dates '+d[0]+' to '+d[d.length-1]:'no dates';
+}
+
+function setData(recs,corrs,label){
+  crashes=recs; corridors=corrs; selectedCorridor=null;
+  // corridors referenced by crashes but absent from geometry (e.g. enriched CSV without the GeoJSON)
+  for(const r of recs)if(r.hin_corridor_id&&!corridors.has(r.hin_corridor_id))
+    corridors.set(r.hin_corridor_id,{id:r.hin_corridor_id,name:r.hin_corridor_name,tier:Number(r.hin_tier)||null,miles:0,aadt:null,lines:[]});
+  const synthetic=recs.some(r=>/^SYNTH-/.test(r.crash_id)||/synthetic/i.test(r.nearest_street));
+  if(synthetic)banner('These records are SYNTHETIC training data, not actual DC crashes.');
+  else if(!el('banner').textContent.includes('HIN'))banner('');
+  setSource(label);
+  const years=[...new Set(recs.map(r=>r.year).filter(Boolean))].sort();
+  const ys=el('f-year'),prev=ys.value;
+  ys.innerHTML='<option value="All">All years</option>'+years.map(y=>`<option>${y}</option>`).join('');
+  ys.value=years.includes(prev)?prev:'All';
+  const d=recs.map(r=>r.report_date).filter(Boolean).sort();
+  el('subtitle').textContent=`DCGIS / MPD Crashes in DC · ${d[0]||'—'} to ${d[d.length-1]||'—'} · ${fmt(recs.length)} crash records`;
+  drawHinLines();
+  apply();
+}
+
+// ---------------------------------------------------------------- filtering
+function apply(){
+  const y=el('f-year').value,w=el('f-ward').value,m=el('f-mode').value;
+  filtered=crashes.filter(r=>(y==='All'||r.year===y)&&(w==='All'||r.ward===w)&&(m==='All'||r.road_user===m));
+  render();
+}
+['f-year','f-ward','f-mode'].forEach(id=>el(id).addEventListener('change',apply));
+el('clear').addEventListener('click',()=>{['f-year','f-ward','f-mode'].forEach(id=>el(id).value='All');selectCorridor(null);apply()});
+
+// ---------------------------------------------------------------- rendering
+function render(){
+  const ksi=filtered.reduce((t,r)=>t+r.ksi_crash,0);
+  const ksiHin=filtered.reduce((t,r)=>t+(r.ksi_crash&&r.hin_corridor_id?1:0),0);
+  el('k-crashes').textContent=fmt(filtered.length);
+  el('k-fatal').textContent=fmt(filtered.reduce((t,r)=>t+r.fatalities,0));
+  el('k-major').textContent=fmt(filtered.reduce((t,r)=>t+r.major_injuries,0));
+  el('k-ksi').textContent=fmt(ksi);
+  el('k-hin').textContent=corridors.size&&ksi?pct(ksiHin/ksi):'—';
+  renderTrend(); renderWards(); renderModes(); renderCorridors(); renderMap();
+}
+
+const tip=el('tip');
+function showTip(html,ev){tip.innerHTML=html;tip.style.display='block';const pad=14,w=tip.offsetWidth,h=tip.offsetHeight;
+  let x=ev.clientX+pad,y=ev.clientY+pad;if(x+w>innerWidth-8)x=ev.clientX-w-pad;if(y+h>innerHeight-8)y=ev.clientY-h-pad;tip.style.left=x+'px';tip.style.top=y+'px'}
+function hideTip(){tip.style.display='none'}
+
+function barList(container,items,{color,selected,onSelect,tipFn,interactive=true}){
+  const max=Math.max(1,...items.map(d=>d.value));
+  const box=el(container);
+  if(!items.length){box.innerHTML='<div class="empty">No records for these filters.</div>';return}
+  box.innerHTML=items.map((d,i)=>`<button class="bar${interactive?'':' static'}${selected===d.key?' sel':''}${selected&&selected!==d.key?' dim':''}" data-i="${i}" ${interactive?'':'tabindex="-1"'} aria-label="${esc(d.label)}: ${fmt(d.value)}">
+      <span class="name" title="${esc(d.label)}">${esc(d.label)}</span>
+      <span class="track"><span class="fill" style="width:${(d.value/max*100).toFixed(2)}%;background:${color(d)}"></span></span>
+      <span class="val">${d.fmt?d.fmt(d.value):fmt(d.value)}</span></button>`).join('');
+  box.querySelectorAll('.bar').forEach(b=>{
+    const d=items[b.dataset.i];
+    if(interactive)b.addEventListener('click',()=>onSelect(d));
+    if(tipFn){b.addEventListener('mousemove',e=>showTip(tipFn(d),e));b.addEventListener('mouseleave',hideTip)}
+  });
+}
+
+function renderWards(){
+  const w=el('f-ward').value;
+  const base=crashes.filter(r=>(el('f-year').value==='All'||r.year===el('f-year').value)&&(el('f-mode').value==='All'||r.road_user===el('f-mode').value));
+  const items=Array.from({length:8},(_,i)=>'Ward '+(i+1)).map(k=>{const rs=base.filter(r=>r.ward===k);
+    return {key:k,label:k,value:rs.reduce((t,r)=>t+r.ksi_crash,0),crashes:rs.length}}).sort((a,b)=>b.value-a.value);
+  barList('wards',items,{color:()=>'var(--series-1)',selected:w==='All'?null:w,
+    onSelect:d=>{el('f-ward').value=el('f-ward').value===d.key?'All':d.key;apply()},
+    tipFn:d=>`<b>${d.label}</b><br><span class="k">KSI crashes</span> ${fmt(d.value)}<br><span class="k">All crashes</span> ${fmt(d.crashes)}<br><span class="k">KSI share</span> ${pct(d.value/d.crashes)}`});
+}
+function renderModes(){
+  const m=el('f-mode').value;
+  const base=crashes.filter(r=>(el('f-year').value==='All'||r.year===el('f-year').value)&&(el('f-ward').value==='All'||r.ward===el('f-ward').value));
+  const items=['Pedestrian','Bicyclist','Motor vehicle only'].map(k=>{const rs=base.filter(r=>r.road_user===k);
+    return {key:k,label:k,value:rs.reduce((t,r)=>t+r.ksi_crash,0),crashes:rs.length}}).sort((a,b)=>b.value-a.value);
+  barList('modes',items,{color:()=>'var(--series-1)',selected:m==='All'?null:m,
+    onSelect:d=>{el('f-mode').value=el('f-mode').value===d.key?'All':d.key;apply()},
+    tipFn:d=>`<b>${d.label}</b><br><span class="k">KSI crashes</span> ${fmt(d.value)}<br><span class="k">All crashes</span> ${fmt(d.crashes)}<br><span class="k">KSI share</span> ${pct(d.value/d.crashes)}`});
+}
+
+function corridorLabel(c,dupes){return dupes.get(c.name)>1?`${c.name} [${c.id}]`:c.name}
+function renderCorridors(){
+  const tierLegend=[1,2,3].map(t=>`<span><i class="sq" style="background:var(--tier-${t})"></i>Tier ${t}</span>`).join('');
+  el('tier-legend').innerHTML=tierLegend;el('tier-legend2').innerHTML=tierLegend;
+  if(!corridors.size){['corr-ksi','corr-rate'].forEach(id=>el(id).innerHTML='<div class="empty">HIN corridor data not loaded.</div>');el('corr-table').innerHTML='';return}
+  const agg=new Map([...corridors.values()].map(c=>[c.id,{c,crashes:0,ksi:0,fatal:0,ped:0,bike:0}]));
+  for(const r of filtered){const a=agg.get(r.hin_corridor_id);if(!a)continue;a.crashes++;a.ksi+=r.ksi_crash;a.fatal+=r.fatalities;a.ped+=r.pedestrian_involved;a.bike+=r.bicyclist_involved}
+  const dupes=new Map();for(const c of corridors.values())dupes.set(c.name,(dupes.get(c.name)||0)+1);
+  const all=[...agg.values()].map(a=>({...a,key:a.c.id,label:corridorLabel(a.c,dupes),tier:a.c.tier,miles:a.c.miles,rate:a.c.miles?a.ksi/a.c.miles:null}));
+  const tipFn=d=>`<b>${esc(d.label)}</b><br><span class="k">HIN tier</span> ${d.tier??'—'} · <span class="k">length</span> ${d.miles?d.miles.toFixed(2)+' mi':'—'}<br><span class="k">KSI crashes</span> ${fmt(d.ksi)} · <span class="k">fatalities</span> ${fmt(d.fatal)}<br><span class="k">All crashes</span> ${fmt(d.crashes)}<br><span class="k">KSI per mile</span> ${d.rate!=null?d.rate.toFixed(1):'—'}`+(d.c.aadt?`<br><span class="k">AADT (context)</span> ${fmt(d.c.aadt)}`:'');
+  const color=d=>`var(--tier-${d.tier||3})`;
+  barList('corr-ksi',all.filter(d=>d.ksi>0).sort((a,b)=>b.ksi-a.ksi||b.crashes-a.crashes).slice(0,15).map(d=>({...d,value:d.ksi})),
+    {color,selected:selectedCorridor,onSelect:d=>selectCorridor(d.key),tipFn});
+  barList('corr-rate',all.filter(d=>d.miles>=MIN_RATE_MILES&&d.ksi>0).sort((a,b)=>b.rate-a.rate).slice(0,15).map(d=>({...d,value:d.rate,fmt:v=>v.toFixed(1)})),
+    {color,selected:selectedCorridor,onSelect:d=>selectCorridor(d.key),tipFn});
+  const rows=all.sort((a,b)=>b.ksi-a.ksi||a.label.localeCompare(b.label));
+  el('corr-table').innerHTML=`<table><thead><tr><th>Corridor</th><th>Tier</th><th>Miles</th><th>Crashes</th><th>KSI</th><th>KSI / mi</th><th>Ped</th><th>Bike</th></tr></thead><tbody>${
+    rows.map(d=>`<tr><td>${esc(d.label)}</td><td>${d.tier??''}</td><td>${d.miles?d.miles.toFixed(2):''}</td><td>${fmt(d.crashes)}</td><td>${fmt(d.ksi)}</td><td>${d.rate!=null?d.rate.toFixed(1):''}</td><td>${fmt(d.ped)}</td><td>${fmt(d.bike)}</td></tr>`).join('')}</tbody></table>`;
+}
+
+// ---------------------------------------------------------------- trend (two single-axis charts, shared x)
+function renderTrend(){
+  const g=new Map();
+  for(const r of filtered){if(!r.report_month)continue;const v=g.get(r.report_month)||{all:0,ksi:0};v.all++;v.ksi+=r.ksi_crash;g.set(r.report_month,v)}
+  const keys=[...g.keys()].sort();
+  if(!keys.length){el('trend-all').innerHTML=el('trend-ksi').innerHTML='<div class="empty">No records for these filters.</div>';return}
+  // fill gaps so missing months read as zero, not as a skipped point
+  const months=[];let [y,m]=keys[0].split('-').map(Number);const [ly,lm]=keys[keys.length-1].split('-').map(Number);
+  while(y<ly||(y===ly&&m<=lm)){months.push(`${y}-${String(m).padStart(2,'0')}`);m++;if(m>12){m=1;y++}}
+  const series=months.map(k=>({k,...(g.get(k)||{all:0,ksi:0})}));
+  const lastDate=filtered.map(r=>r.report_date).filter(Boolean).sort().pop();
+  const ld=new Date(lastDate+'T12:00:00Z'),partial=new Date(Date.UTC(ld.getUTCFullYear(),ld.getUTCMonth()+1,0)).getUTCDate()!==ld.getUTCDate();
+  lineChart('trend-all',series,'all','All crashes',150,partial);
+  lineChart('trend-ksi',series,'ksi','KSI crashes',120,partial);
+}
+function niceMax(v){if(v<=0)return 1;const p=10**Math.floor(Math.log10(v)),n=v/p;return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*p}
+function lineChart(id,series,key,label,H,partial){
+  const box=el(id),W=Math.max(320,box.clientWidth||600),m={l:44,r:12,t:18,b:22},iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const max=niceMax(Math.max(...series.map(d=>d[key])));
+  const x=i=>m.l+(series.length===1?iw/2:i*iw/(series.length-1)),yv=v=>m.t+ih-v/max*ih;
+  let s=`<svg width="100%" viewBox="0 0 ${W} ${H}" role="img" aria-label="${label} per month"><text x="${m.l}" y="11" style="fill:var(--text-secondary);font-weight:600">${label}</text>`;
+  for(let i=0;i<=3;i++){const v=max*i/3,yy=yv(v);s+=`<line x1="${m.l}" x2="${W-m.r}" y1="${yy}" y2="${yy}" stroke="var(--grid)" stroke-width="1"/><text x="${m.l-6}" y="${yy+3.5}" text-anchor="end">${fmt(Math.round(v))}</text>`}
+  // short ranges: label every month; long ranges: label each January with its year
+  series.forEach((d,i)=>{const lab=series.length<=14?d.k.slice(5):d.k.endsWith('-01')?d.k.slice(0,4):'';
+    if(lab)s+=`<text x="${x(i)}" y="${H-6}" text-anchor="middle">${lab}</text>`});
+  const pts=series.map((d,i)=>`${x(i).toFixed(1)},${yv(d[key]).toFixed(1)}`).join(' ');
+  s+=`<polyline points="${pts}" fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const li=series.length-1;
+  s+=`<circle cx="${x(li)}" cy="${yv(series[li][key])}" r="4" fill="${partial?'var(--surface-1)':'var(--series-1)'}" stroke="var(--series-1)" stroke-width="2"/>`;
+  s+=`<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${m.t+ih}" stroke="var(--text-muted)" stroke-width="1" visibility="hidden"/><circle class="xd" r="4" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
+  s+=`<rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" class="hit"/></svg>`;
+  box.innerHTML=s;
+  const svg=box.querySelector('svg'),hit=box.querySelector('.hit'),xh=box.querySelector('.xh'),xd=box.querySelector('.xd');
+  hit.addEventListener('mousemove',e=>{
+    const r=svg.getBoundingClientRect(),px=(e.clientX-r.left)*W/r.width;
+    const i=Math.max(0,Math.min(series.length-1,Math.round((px-m.l)/iw*(series.length-1))));
+    const d=series[i];xh.setAttribute('x1',x(i));xh.setAttribute('x2',x(i));xh.setAttribute('visibility','visible');
+    xd.setAttribute('cx',x(i));xd.setAttribute('cy',yv(d[key]));xd.setAttribute('visibility','visible');
+    const mn=new Date(d.k+'-15T12:00:00Z').toLocaleString('en-US',{month:'long',year:'numeric',timeZone:'UTC'});
+    showTip(`<b>${mn}</b>${i===series.length-1&&partial?' <span class="k">(partial month)</span>':''}<br><span class="k">All crashes</span> ${fmt(d.all)}<br><span class="k">KSI crashes</span> ${fmt(d.ksi)}<br><span class="k">KSI share</span> ${pct(d.all?d.ksi/d.all:NaN)}`,e);
+  });
+  hit.addEventListener('mouseleave',()=>{xh.setAttribute('visibility','hidden');xd.setAttribute('visibility','hidden');hideTip()});
+}
+
+// ---------------------------------------------------------------- map
+let map=null,ksiLayer=null,hinLayer=null,hiLayer=null,tiles=null;
+function isDark(){return matchMedia('(prefers-color-scheme: dark)').matches&&document.documentElement.dataset.theme!=='light'||document.documentElement.dataset.theme==='dark'}
+function ensureMap(){
+  if(map||!window.L)return !!map;
+  map=L.map('map',{preferCanvas:true,scrollWheelZoom:false}).setView([38.9072,-77.0169],12);
+  setTiles();
+  hinLayer=L.layerGroup().addTo(map);ksiLayer=L.layerGroup().addTo(map);hiLayer=L.layerGroup().addTo(map);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{setTiles();drawHinLines();renderMap()});
+  return true;
+}
+function setTiles(){
+  if(tiles)map.removeLayer(tiles);
+  tiles=L.tileLayer(`https://{s}.basemaps.cartocdn.com/${isDark()?'dark_all':'light_all'}/{z}/{x}/{y}{r}.png`,
+    {attribution:'&copy; OpenStreetMap contributors &copy; CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
+}
+const ll=path=>path.map(p=>[p[1],p[0]]);
+function drawHinLines(){
+  if(!ensureMap())return;
+  hinLayer.clearLayers();
+  const color=css('--hin-line');
+  for(const c of corridors.values())for(const path of c.lines)
+    L.polyline(ll(path),{color,weight:2,opacity:.55,interactive:false}).addTo(hinLayer);
+}
+function renderMap(){
+  if(!ensureMap()){el('map').innerHTML='<div class="empty">Map library unavailable (offline?). Charts still reflect all records.</div>';return}
+  ksiLayer.clearLayers();
+  const fatal=css('--fatal'),major=css('--major'),ring=css('--surface-1');
+  const pts=filtered.filter(r=>r.ksi_crash&&r.latitude!=null).sort((a,b)=>a.fatalities-b.fatalities);
+  const renderer=L.canvas({padding:.4});
+  for(const r of pts){
+    const f=r.fatalities>0;
+    L.circleMarker([r.latitude,r.longitude],{renderer,radius:f?5.5:4,color:ring,weight:1,fillColor:f?fatal:major,fillOpacity:.9})
+      .bindTooltip(`<b>${esc(r.nearest_street)}</b><br>${esc(r.report_date)} · ${esc(r.ward)}<br>${r.severity} · ${esc(r.road_user)}<br>Fatalities ${r.fatalities} · Major injuries ${r.major_injuries}`+(r.hin_corridor_name?`<br>HIN: ${esc(r.hin_corridor_name)} (tier ${esc(r.hin_tier)})`:''))
+      .addTo(ksiLayer);
+  }
+  el('map-note').textContent=`${fmt(pts.length)} fatal and major-injury crashes by report location; lines are HIN corridors.`;
+  setTimeout(()=>map.invalidateSize(),50);
+}
+function selectCorridor(id){
+  selectedCorridor=selectedCorridor===id?null:id;
+  if(map){hiLayer.clearLayers();
+    const c=selectedCorridor&&corridors.get(selectedCorridor);
+    if(c&&c.lines.length){const lines=c.lines.map(p=>L.polyline(ll(p),{color:css('--text-primary'),weight:5,opacity:.9}).addTo(hiLayer));
+      map.fitBounds(L.featureGroup(lines).getBounds(),{padding:[40,40],maxZoom:16})}
+    else if(!selectedCorridor)map.setView([38.9072,-77.0169],12);
+  }
+  renderCorridors();
+}
+
+// ---------------------------------------------------------------- export
+el('export').addEventListener('click',()=>{
+  if(!filtered.length){setStatus('Nothing to export for these filters.',{error:true});return}
+  const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+  const body=[EXPORT_FIELDS.join(','),...filtered.map(r=>EXPORT_FIELDS.map(k=>q(r[k])).join(','))].join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿',body],{type:'text/csv;charset=utf-8'}));
+  a.download='dc_crashes_filtered.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+});
+
+// ---------------------------------------------------------------- wiring
+el('end').value=new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+for(let i=1;i<=8;i++)el('f-ward').insertAdjacentHTML('beforeend',`<option>Ward ${i}</option>`);
+el('live').addEventListener('click',()=>{banner('');loadLive()});
+el('local').addEventListener('click',()=>{banner('');loadLocal()});
+el('open').addEventListener('click',()=>el('file').click());
+el('file').addEventListener('change',e=>{const fs=[...e.target.files];e.target.value='';if(fs.length){banner('');loadFiles(fs)}});
+let rz;addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(()=>{if(crashes.length)renderTrend()},150)});
+
+const params=new URLSearchParams(location.search);
+if(params.get('source')==='live')loadLive(); else loadLocal({auto:true});
+})();
+</script>
+</body>
+</html>

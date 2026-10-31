@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+
+# OS
+.DS_Store
+
+# Tableau autosave / recovery files
+.~*.twbr
+*.twbr
+
+# Regenerable 63 MB bundle from enrich_ddot_safety.py (not used by the dashboards)
+data/phase2/ddot_safety_bundle.json

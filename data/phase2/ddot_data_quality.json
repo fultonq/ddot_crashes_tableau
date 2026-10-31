@@ -1,0 +1,33 @@
+{
+  "created_utc": "2026-10-31T02:07:32.290986+00:00",
+  "sources": {
+    "hin": "https://rh.dcgis.dc.gov/dcgis/rest/services/DDOT/DDOTLRS/FeatureServer/142",
+    "aadt": "https://rh.dcgis.dc.gov/dcgis/rest/services/DDOT/DDOTLRS/FeatureServer/24",
+    "workorders": "https://maps2.dcgis.dc.gov/dcgis/rest/services/DDOT/Cityworks/FeatureServer/3",
+    "crashes": "https://maps2.dcgis.dc.gov/dcgis/rest/services/DCGIS_DATA/Public_Safety_WebMercator/FeatureServer/24"
+  },
+  "crash_rows": 72420,
+  "hin_segments": 74,
+  "hin_corridors": 58,
+  "aadt_segments": 106907,
+  "traffic_safety_workorder_points": 12,
+  "verified_project_rows": 0,
+  "crashes_near_hin": 20577,
+  "crashes_no_valid_coordinates": 0,
+  "hin_segment_miles": 81.6,
+  "aadt_matched_hin_miles": 81.6,
+  "join_thresholds_m": {
+    "crash_to_hin": 35,
+    "hin_to_aadt": 25,
+    "workorder_to_hin": 50
+  },
+  "methodology_notes": [
+    "Matches are proximity-only spatial screens; parallel roads and intersections may misassign a corridor.",
+    "HIN corridor features may overlap and total segment mileage may double-count overlapping linework.",
+    "AADT context is length-weighted across matched HIN lines, not a validated VMT denominator.",
+    "Traffic Safety Work Orders are operational activity and cannot demonstrate installed treatments.",
+    "Verified completed projects require a human-reviewed register with installation evidence.",
+    "Crash dates are REPORTDATE, not guaranteed incident dates.",
+    "Year-over-year comparison must use equivalent month/day windows; source completeness still requires review."
+  ]
+}
